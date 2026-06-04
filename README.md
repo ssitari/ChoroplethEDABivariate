@@ -8,7 +8,7 @@ Built with [D3.js](https://d3js.org). No build step required — plain HTML, CSS
 
 ## Live demo
 
-[View on GitHub Pages]([update this link after deploying](https://ecg2104.github.io/ChoroplethEDABivariate/))
+[View on GitHub Pages](https://ecg2104.github.io/ChoroplethEDABivariate/)
 
 ---
 
