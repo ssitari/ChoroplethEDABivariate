@@ -2,6 +2,8 @@
 
 An interactive bivariate choropleth explorer linking a 3×3 classified map to a scatterplot with OLS regression. Brushing either view highlights the corresponding features in the other.
 
+The inspiration for this is the brushable EDA toolset in [GeoDa](https://geodacenter.github.io/), which I have been using for years. It's remarkable that ESRI and QGIS still haven't brought those tools into their own platforms. This is an effort to replicate that kind of linked-view interactivity for outward-facing web visualization.
+
 Built with [D3.js](https://d3js.org). No build step required — plain HTML, CSS, and ES modules.
 
 ---
@@ -246,6 +248,18 @@ This project is part of a series of linked-view exploratory data analysis tools:
 
 - **Choropleth EDA — Univariate** — single variable choropleth with linked histogram, multiple classification schemes, and ColorBrewer palettes
 - **Choropleth EDA — Bivariate** — this tool
+
+---
+
+## Acknowledgements
+
+Methodological inspiration from the GeoDa platform:
+
+> Anselin, Luc, Ibnu Syabri and Youngihn Kho (2006). GeoDa: An Introduction to Spatial Data Analysis. *Geographical Analysis* 38 (1), 5–22.
+
+Bivariate color schemes by [Joshua Stevens](https://www.joshuastevens.net/cartography/make-a-bivariate-choropleth-map/).
+
+Most of the code written with assistance from [Claude](https://claude.ai) (Anthropic).
 
 ---
 
