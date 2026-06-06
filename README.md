@@ -226,6 +226,8 @@ NYC COVID-19 Vaccine Data — [github.com/nychealth/covid-vaccine-data](https://
 
 **Geography:** NYC MODZCTA boundaries are derived from US Census ZIP Code Tabulation Areas, modified by DOHMH for public health reporting. Original boundaries available at [NYC Open Data](https://data.cityofnewyork.us).
 
+**Inspiration:** The New York Times, March 26, 2021 — [Why Are Some N.Y.C. Neighborhoods Still Waiting for Vaccines?](https://www.nytimes.com/interactive/2021/03/26/nyregion/nyc-vaccination-rates-map.html)
+
 ---
 
 ## Libraries and tools
