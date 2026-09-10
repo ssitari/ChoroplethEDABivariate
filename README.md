@@ -79,6 +79,21 @@ export const FEATURE_NAME_FIELD = 'NAME';
 export const FEATURE_GROUP_FIELD = 'STATE_NAME';
 ```
 
+Set the page identity too — these are written into the browser tab, the toolbar
+heading and the footer at load, so `index.html` needs no edits:
+
+```javascript
+export const PAGE_TITLE = 'Median Income and Education by Tract';
+
+// Inserted as markup, so it can carry links. Always name your data source
+// and link back to the source code.
+export const DATA_CREDIT_HTML = `
+  Data: US Census Bureau
+  <a href="https://data.census.gov" rel="noopener" target="_blank">ACS 5-Year Estimates</a>.
+  Source code: <a href="https://github.com/you/YourRepo" rel="noopener" target="_blank">you/YourRepo</a>.
+`;
+```
+
 Then replace the `VARIABLES` array with entries for your own fields:
 
 ```javascript
@@ -126,6 +141,17 @@ npx serve your-project-folder
 ```
 
 **VS Code:** Install the "Live Server" extension → right-click `index.html` → Open with Live Server.
+
+### 5. If the map does not appear
+
+The tool checks `config.js` against your data before drawing anything, and
+reports mismatches on the page rather than failing silently. It will tell you,
+by name, if a `prop` is not a property of your GeoJSON (listing the properties
+that *are* there), if `FEATURE_ID_FIELD` is missing or not unique, if geometry
+is not Polygon/MultiPolygon, or if the coordinates look unprojected. Less
+serious problems — an unknown `DEFAULT_VAR_X`, an unrecognised colour scheme —
+are repaired with a sensible fallback and logged to the browser console under
+`[config]`.
 
 ---
 

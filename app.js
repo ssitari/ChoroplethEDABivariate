@@ -6,7 +6,7 @@ import {
   DATA_FILE, GEOGRAPHY_LABEL,
   FEATURE_ID_FIELD, FEATURE_NAME_FIELD, FEATURE_GROUP_FIELD,
   VARIABLES, DEFAULT_VAR_X, DEFAULT_VAR_Y,
-  DEFAULT_BIVARIATE_SCHEME,
+  DEFAULT_BIVARIATE_SCHEME, PAGE_TITLE, DATA_CREDIT_HTML,
   NULL_COLOR, SELECTION_COLOR, DEEMPHASIS_OPACITY, DOT_RADIUS,
 } from './config.js';
 
@@ -291,8 +291,12 @@ function drawLegend() {
   outer.appendChild(gridWrap);
   legend.appendChild(outer);
 
-  // Divider + breakpoints
-  if (xb && yb) {
+  // Divider + breakpoints.
+  // Test the contents, not the arrays: tertileBreaks() returns
+  // [undefined, undefined] for a variable with no numeric values, and a
+  // two-element array is truthy even when both entries are undefined —
+  // which used to reach vd.fmt(undefined) and throw.
+  if (xb?.[0] != null && yb?.[0] != null) {
     const div = document.createElement('div');
     div.style.cssText = 'border-top:0.5px solid #eee;margin:7px 0 5px;';
     legend.appendChild(div);
@@ -764,25 +768,223 @@ function onSchemeChange(id) {
 }
 
 // ============================================================
+//  PAGE IDENTITY
+// ============================================================
+
+function applyPageIdentity() {
+  document.title = PAGE_TITLE;
+  const h = document.getElementById('appTitle');
+  if (h) h.textContent = PAGE_TITLE;
+  const credit = document.getElementById('pageCredit');
+  // DATA_CREDIT_HTML is authored in config.js rather than read from the
+  // data, so it is trusted markup and may contain links.
+  if (credit) credit.innerHTML = DATA_CREDIT_HTML;
+}
+
+// ============================================================
+//  CONFIG PREFLIGHT
+//  Catches the mistakes that are easy to make when pointing the tool
+//  at a new dataset — a mistyped `prop`, a missing or duplicated id
+//  field, a file that was never reprojected — and reports them on the
+//  page. Without this a single wrong character in config.js renders a
+//  blank map whose only clue is a TypeError in the devtools console.
+// ============================================================
+
+function code(text) {
+  return `<code style="font-family:ui-monospace,Menlo,Consolas,monospace;` +
+         `background:#f0f0f0;border-radius:3px;padding:0 3px;">${text}</code>`;
+}
+function stripTags(s) { return s.replace(/<[^>]*>/g, ''); }
+
+// Union of property names across all features. GeoJSON does not require
+// every feature to carry the same keys, so inspecting features[0] alone
+// would raise false alarms on sparse data.
+function collectPropertyNames(features) {
+  const keys = new Set();
+  features.forEach(f => {
+    if (f.properties) Object.keys(f.properties).forEach(k => keys.add(k));
+  });
+  return keys;
+}
+
+function nameList(keys) {
+  const all = [...keys];
+  const shown = all.slice(0, 25).map(k => `'${k}'`).join(', ');
+  return all.length > 25 ? `${shown}, … (${all.length} total)` : shown;
+}
+
+// Descend to the first coordinate pair and check it against lon/lat bounds.
+// A projected file (State Plane feet, UTM metres, Web Mercator) carries
+// values far outside this range, and geoMercator renders it as a single dot.
+function looksUnprojected(features) {
+  for (const f of features) {
+    let c = f.geometry && f.geometry.coordinates;
+    while (Array.isArray(c) && Array.isArray(c[0])) c = c[0];
+    if (Array.isArray(c) && typeof c[0] === 'number' && typeof c[1] === 'number') {
+      return Math.abs(c[0]) > 180 || Math.abs(c[1]) > 90;
+    }
+  }
+  return false;
+}
+
+// Returns { errors, warnings }. Errors stop the app and are shown on the
+// page; warnings are repaired where possible and logged to the console.
+function validateConfig(geojson) {
+  const errors = [], warnings = [];
+
+  if (!geojson || geojson.type !== 'FeatureCollection' || !Array.isArray(geojson.features)) {
+    errors.push(`${code(DATA_FILE)} is not a GeoJSON FeatureCollection.`);
+    return { errors, warnings };
+  }
+  const feats = geojson.features;
+  if (!feats.length) {
+    errors.push(`${code(DATA_FILE)} contains no features.`);
+    return { errors, warnings };
+  }
+
+  // ── geometry ──
+  const badGeom = feats.filter(f =>
+    !f.geometry || (f.geometry.type !== 'Polygon' && f.geometry.type !== 'MultiPolygon'));
+  if (badGeom.length === feats.length) {
+    errors.push('No feature has Polygon or MultiPolygon geometry, so there is nothing to draw.');
+  } else if (badGeom.length) {
+    const kinds = [...new Set(badGeom.map(f => (f.geometry && f.geometry.type) || 'null'))].join(', ');
+    warnings.push(`${badGeom.length} of ${feats.length} features have unusable geometry (${kinds}) and will not appear on the map.`);
+  }
+  if (looksUnprojected(feats)) {
+    errors.push('Coordinates fall outside the range of longitude and latitude, so this file is probably not in WGS 84 (EPSG:4326). Reproject it before loading — see the README.');
+  }
+
+  // ── identity fields ──
+  const keys = collectPropertyNames(feats);
+  if (!keys.has(FEATURE_ID_FIELD)) {
+    errors.push(`FEATURE_ID_FIELD ${code(FEATURE_ID_FIELD)} is not a property of this data.<br>Available properties: ${nameList(keys)}`);
+  } else {
+    const ids = new Set(feats.map(featureId));
+    if (ids.size !== feats.length) {
+      errors.push(`FEATURE_ID_FIELD ${code(FEATURE_ID_FIELD)} is not unique — ${feats.length} features share only ${ids.size} distinct values. Duplicates are dropped from the map and break selection.`);
+    }
+  }
+  if (FEATURE_NAME_FIELD && !keys.has(FEATURE_NAME_FIELD)) {
+    warnings.push(`FEATURE_NAME_FIELD '${FEATURE_NAME_FIELD}' is not in the data — tooltips will have no title.`);
+  }
+  if (FEATURE_GROUP_FIELD && !keys.has(FEATURE_GROUP_FIELD)) {
+    warnings.push(`FEATURE_GROUP_FIELD '${FEATURE_GROUP_FIELD}' is not in the data — set it to null to omit the tooltip's second line.`);
+  }
+
+  // ── variables ──
+  if (!Array.isArray(VARIABLES) || !VARIABLES.length) {
+    errors.push(`${code('VARIABLES')} is empty — add at least two mappable numeric fields.`);
+  } else {
+    if (VARIABLES.length < 2) {
+      warnings.push('VARIABLES has only one entry, so the X and Y axes will show the same field.');
+    }
+    const seenIds = new Set();
+    VARIABLES.forEach((v, i) => {
+      const where = `VARIABLES[${i}]` + (v.label ? ` ('${v.label}')` : '');
+      if (!v.id) errors.push(`${where} has no ${code('id')}.`);
+      else if (seenIds.has(v.id)) errors.push(`${where} repeats the id '${v.id}' — ids must be unique.`);
+      else seenIds.add(v.id);
+
+      if (typeof v.fmt !== 'function') {
+        errors.push(`${where} has no ${code('fmt')} function — it formats values for tooltips, axes and class breaks.`);
+      }
+      if (typeof v.unit !== 'string') {
+        warnings.push(`${where} has no 'unit' string — the regression slope label will read "undefined".`);
+      }
+
+      if (!v.prop) { errors.push(`${where} has no ${code('prop')}.`); return; }
+      if (!keys.has(v.prop)) {
+        errors.push(`${where}: prop ${code(v.prop)} is not a property of this data.<br>Available properties: ${nameList(keys)}`);
+        return;
+      }
+      const n = feats.reduce((acc, f) => {
+        const raw = f.properties && f.properties[v.prop];
+        return acc + ((raw == null || raw === '' || isNaN(+raw)) ? 0 : 1);
+      }, 0);
+      if (n === 0) {
+        errors.push(`${where}: prop ${code(v.prop)} exists but holds no numeric values. Pre-compute it as a number before loading.`);
+      } else if (n < feats.length * 0.5) {
+        warnings.push(`${where}: only ${n} of ${feats.length} features have a numeric value for '${v.prop}'.`);
+      }
+    });
+  }
+
+  // ── defaults (repaired by repairDefaults(), so these only warn) ──
+  const varIds = new Set((VARIABLES || []).map(v => v.id));
+  if (varIds.size) {
+    if (!varIds.has(DEFAULT_VAR_X)) warnings.push(`DEFAULT_VAR_X '${DEFAULT_VAR_X}' is not a VARIABLES id — falling back to the first variable.`);
+    if (!varIds.has(DEFAULT_VAR_Y)) warnings.push(`DEFAULT_VAR_Y '${DEFAULT_VAR_Y}' is not a VARIABLES id — falling back to the first variable.`);
+  }
+  if (!BIVARIATE_SCHEMES[DEFAULT_BIVARIATE_SCHEME]) {
+    warnings.push(`DEFAULT_BIVARIATE_SCHEME '${DEFAULT_BIVARIATE_SCHEME}' is not a known scheme — falling back to '${Object.keys(BIVARIATE_SCHEMES)[0]}'. Choose one of: ${Object.keys(BIVARIATE_SCHEMES).map(k => `'${k}'`).join(', ')}.`);
+  }
+
+  return { errors, warnings };
+}
+
+// An out-of-range default is a typo, not a reason to refuse to start.
+function repairDefaults() {
+  const varIds = new Set(VARIABLES.map(v => v.id));
+  if (!varIds.has(state.varX)) state.varX = VARIABLES[0].id;
+  if (!varIds.has(state.varY)) state.varY = VARIABLES[Math.min(1, VARIABLES.length - 1)].id;
+  if (!BIVARIATE_SCHEMES[state.scheme]) state.scheme = Object.keys(BIVARIATE_SCHEMES)[0];
+}
+
+// Reuses the loading overlay so problems appear over the map, in the place
+// the map would have been.
+function showStartupProblems(errors, warnings) {
+  const box  = document.getElementById('loadingMsg');
+  const list = items => items.map(m => `<li style="margin:0 0 7px;">${m}</li>`).join('');
+  box.style.display        = 'flex';
+  box.style.alignItems     = 'flex-start';
+  box.style.justifyContent = 'flex-start';
+  box.style.overflow       = 'auto';
+  box.style.padding        = '20px 24px';
+  box.innerHTML = `
+    <div style="max-width:660px;font-size:12px;line-height:1.55;color:#444;text-align:left;">
+      <div style="font-size:13px;font-weight:700;color:#c0392b;margin-bottom:9px;">
+        ⚠ config.js does not match this data
+      </div>
+      <ul style="margin:0 0 0 18px;padding:0;">${list(errors)}</ul>
+      ${warnings.length ? `<div style="font-weight:700;color:#9a7000;margin:13px 0 6px;">Also worth fixing</div>
+      <ul style="margin:0 0 0 18px;padding:0;">${list(warnings)}</ul>` : ''}
+      <div style="margin-top:13px;color:#888;">Correct these in ${code('config.js')} and reload.</div>
+    </div>`;
+}
+
+// ============================================================
 //  INIT
 // ============================================================
 
 async function init() {
+  applyPageIdentity();
   document.getElementById('loadingMsg').style.display = 'flex';
   try {
     const res = await fetch(DATA_FILE);
-    if (!res.ok) throw new Error(`Could not load ${DATA_FILE} — HTTP ${res.status}`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
     state.geojson = await res.json();
   } catch(err) {
-    document.getElementById('loadingMsg').innerHTML =
-      `<span style="color:#c0392b">⚠ ${err.message}</span>`;
+    showStartupProblems([
+      `Could not load ${code(DATA_FILE)} — ${err.message}.`,
+      `Check DATA_FILE in ${code('config.js')}, and make sure the folder is being served
+       over HTTP: a ${code('file://')} URL will not work.`,
+    ], []);
     return;
   }
+
+  // Report config/data mismatches here rather than letting them surface as
+  // a blank map and a console TypeError several draw calls later.
+  const { errors, warnings } = validateConfig(state.geojson);
+  warnings.forEach(w => console.warn('[config]', stripTags(w)));
+  if (errors.length) { showStartupProblems(errors, warnings); return; }
+  repairDefaults();
+
   document.getElementById('loadingMsg').style.display = 'none';
 
   ['varXSelect','varYSelect'].forEach((elId, idx) => {
     const sel = document.getElementById(elId);
-    const def = idx===0 ? DEFAULT_VAR_X : DEFAULT_VAR_Y;
+    const def = idx===0 ? state.varX : state.varY;
     sel.innerHTML = '';
     VARIABLES.forEach(v => {
       const opt = document.createElement('option');

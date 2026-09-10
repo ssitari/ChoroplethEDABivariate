@@ -4,6 +4,27 @@
 
 export const DATA_FILE = './data/MODZCTAS_Vaccine_2021.geojson';
 
+// ============================================================
+//  PAGE IDENTITY
+//  The only page-level text that is not derived from the data.
+//  Setting it here keeps index.html untouched when you adapt the
+//  tool: app.js writes these into the tab title, the toolbar
+//  heading, and the footer credit at load.
+// ============================================================
+
+export const PAGE_TITLE = 'Choropleth EDA – Bivariate';
+
+// Footer credit. Inserted as markup so it can carry links — it is
+// authored here, not read from the data, so it is trusted. Keep a
+// data source and a link back to the source code: a published page
+// should always say where its numbers came from.
+export const DATA_CREDIT_HTML = `
+  Demo data: NYC DOHMH
+  <a href="https://github.com/nychealth/covid-vaccine-data" rel="noopener" target="_blank">COVID-19 Vaccine Data</a>.
+  Source code, method notes and full citations:
+  <a href="https://github.com/ssitari/ChoroplethEDABivariate" rel="noopener" target="_blank">ssitari/ChoroplethEDABivariate</a>.
+`;
+
 export const GEOGRAPHY_LABEL  = 'zip code area';
 export const FEATURE_ID_FIELD = 'fid';
 export const FEATURE_NAME_FIELD  = 'MODZCTA';
