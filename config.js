@@ -26,6 +26,18 @@ export const DATA_CREDIT_HTML = `
 `;
 
 export const GEOGRAPHY_LABEL  = 'zip code area';
+
+// Given explicitly rather than derived: 'county' + 's' is wrong, and so is
+// every pluralisation rule simple enough to be worth writing.
+export const GEOGRAPHY_LABEL_PLURAL = 'zip code areas';
+
+// Map projection: any d3-geo projection factory. It is re-fitted to the pane
+// on every draw, so do not set .scale() or .translate() yourself.
+//   () => d3.geoMercator()    cities and regions away from the poles
+//   () => d3.geoAlbersUsa()   the United States, including Alaska and Hawaii
+//   () => d3.geoAlbers()      mid-latitude countries and states
+export const PROJECTION = () => d3.geoMercator();
+
 export const FEATURE_ID_FIELD = 'fid';
 export const FEATURE_NAME_FIELD  = 'MODZCTA';
 export const FEATURE_GROUP_FIELD = 'Area Name';  // shown in tooltip, set null to omit

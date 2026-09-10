@@ -2,13 +2,25 @@
 //  app.js  —  Bivariate Choropleth EDA engine
 // ============================================================
 
+import * as CONFIG from './config.js';
 import {
   DATA_FILE, GEOGRAPHY_LABEL,
   FEATURE_ID_FIELD, FEATURE_NAME_FIELD, FEATURE_GROUP_FIELD,
   VARIABLES, DEFAULT_VAR_X, DEFAULT_VAR_Y,
-  DEFAULT_BIVARIATE_SCHEME, PAGE_TITLE, DATA_CREDIT_HTML,
+  DEFAULT_BIVARIATE_SCHEME,
   NULL_COLOR, SELECTION_COLOR, DEEMPHASIS_OPACITY, DOT_RADIUS,
 } from './config.js';
+
+// Keys added after the first release. They are read off the namespace rather
+// than named in the import list above, because a config.js written against an
+// earlier version will not export them — and a missing *named* import is a
+// module-level SyntaxError, which kills the page before the preflight can
+// report anything. Each falls back to the behaviour that shipped before the
+// key existed, and the preflight warns where a fallback is in use.
+const PAGE_TITLE             = CONFIG.PAGE_TITLE ?? document.title;
+const DATA_CREDIT_HTML       = CONFIG.DATA_CREDIT_HTML ?? '';
+const GEOGRAPHY_LABEL_PLURAL = CONFIG.GEOGRAPHY_LABEL_PLURAL ?? (GEOGRAPHY_LABEL + 's');
+const PROJECTION             = CONFIG.PROJECTION ?? (() => d3.geoMercator());
 
 // ============================================================
 //  BIVARIATE COLOR SCHEMES  (9 colors, row-major: yClass*3+xClass)
@@ -131,6 +143,7 @@ function calcStats(vals) {
 
 let mapSvg, mapG, mapBrushG, projection, pathGen;
 let zoomBehavior, currentTransform;
+let zoomHintShown = false;
 let cachedXBreaks, cachedYBreaks;
 
 function initMap() {
@@ -145,7 +158,7 @@ function resizeMap() {
   const el = document.getElementById('mapPane');
   const w = el.clientWidth, h = el.clientHeight;
   mapSvg.attr('viewBox', `0 0 ${w} ${h}`).attr('width', w).attr('height', h);
-  projection = d3.geoMercator().fitSize([w, h], state.geojson);
+  projection = PROJECTION().fitSize([w, h], state.geojson);
   pathGen    = d3.geoPath().projection(projection);
   setupZoom(w, h);
 }
@@ -160,10 +173,14 @@ function setupZoom(w, h) {
       mapSvg.select('.zoom-root').attr('transform', e.transform);
     });
   mapSvg.call(zoomBehavior).on('dblclick.zoom', null);
-  let hintShown = false;
+  // setupZoom runs again on every resize, so carry the current view across
+  // rather than snapping back to identity, and keep the hint a one-shot.
+  if (currentTransform && currentTransform !== d3.zoomIdentity) {
+    mapSvg.call(zoomBehavior.transform, currentTransform);
+  }
   zoomBehavior.on('zoom.hint', e => {
-    if (!hintShown && e.transform.k > 1.5) {
-      hintShown = true;
+    if (!zoomHintShown && e.transform.k > 1.5) {
+      zoomHintShown = true;
       const h = document.getElementById('shiftHint');
       h.classList.add('visible');
       setTimeout(() => h.classList.remove('visible'), 3000);
@@ -367,10 +384,12 @@ function openSymDropdown() {
   const tr  = document.getElementById('toolbar').getBoundingClientRect();
   dd.style.left = (r.left - tr.left) + 'px';
   dd.classList.add('open'); btn.classList.add('open'); symDropdownOpen = true;
+  btn.setAttribute('aria-expanded', 'true');
 }
 function closeSymDropdown() {
   document.getElementById('symDropdown').classList.remove('open');
   document.getElementById('symBtn').classList.remove('open');
+  document.getElementById('symBtn').setAttribute('aria-expanded', 'false');
   symDropdownOpen = false;
 }
 function toggleSymDropdown() { symDropdownOpen ? closeSymDropdown() : openSymDropdown(); }
@@ -386,9 +405,15 @@ function setupMapBrush() {
   mapBrushG.append('path').attr('class', 'sel-path');
   mapBrushG.append('rect').attr('class', 'sel-rect')
     .attr('fill','rgba(80,120,255,0.06)').attr('stroke','none').style('display','none');
-  mapSvg.on('mousedown.sel', onSelMouseDown)
-        .on('mousemove.sel', onSelMouseMove)
-        .on('mouseup.sel',   onSelMouseUp);
+  mapSvg.on('mousedown.sel', onSelMouseDown);
+  // Track and finish the drag on the window, not on the SVG. A drag that ends
+  // over the floating legend, the zoom buttons, or past the edge of the pane
+  // never delivered its mouseup here: the selection was silently discarded
+  // and selDrag stayed set, so the lasso kept following the cursor with no
+  // button held. Both handlers no-op unless a drag is in progress.
+  d3.select(window)
+    .on('mousemove.sel', onSelMouseMove)
+    .on('mouseup.sel',   onSelMouseUp);
 }
 
 function svgPoint(event) {
@@ -474,19 +499,37 @@ let scatterSelDrag = null;
 function initScatter() {
   scatterSvg = d3.select('#scatterSvg');
   recalcScatterDims();
+  scatterSvg.append('defs').append('clipPath').attr('id','plotClip')
+    .append('rect').attr('class','plot-clip-rect');
   scatterG = scatterSvg.append('g').attr('transform', `translate(${SM.left},${SM.top})`);
-  scatterG.append('g').attr('class','x-axis').attr('transform',`translate(0,${scatterH})`);
+  scatterG.append('g').attr('class','x-axis');
   scatterG.append('g').attr('class','y-axis');
   scatterG.append('text').attr('class','x-axis-label')
-    .attr('text-anchor','middle').attr('y', scatterH+42)
+    .attr('text-anchor','middle')
     .style('font-size','11px').style('fill','#888');
   scatterG.append('text').attr('class','y-axis-label')
     .attr('text-anchor','middle').attr('transform','rotate(-90)')
-    .attr('x',-scatterH/2).attr('y',-SM.left+13)
     .style('font-size','11px').style('fill','#888');
-  scatterG.append('line').attr('class','reg-all');
-  scatterG.append('line').attr('class','reg-sel');
+  // Both fitted lines are clipped to the plot rect: at the edges of a .nice()'d
+  // domain a fit routinely predicts values outside the y range, and the line
+  // was drawing straight through the x-axis and its label.
+  const regLayer = scatterG.append('g').attr('class','reg-layer')
+    .attr('clip-path','url(#plotClip)');
+  regLayer.append('line').attr('class','reg-all');
+  regLayer.append('line').attr('class','reg-sel');
+  layoutScatter();
   setupScatterSel();
+  bindScatterSelEvents();
+}
+
+// Everything that depends on the pane's size, split out of initScatter so a
+// resize can re-apply it.
+function layoutScatter() {
+  scatterSvg.select('.plot-clip-rect')
+    .attr('x',0).attr('y',0).attr('width',scatterW).attr('height',scatterH);
+  scatterG.select('.x-axis').attr('transform',`translate(0,${scatterH})`);
+  scatterG.select('.x-axis-label').attr('y', scatterH+42);
+  scatterG.select('.y-axis-label').attr('x',-scatterH/2).attr('y',-SM.left+13);
 }
 
 function recalcScatterDims() {
@@ -561,13 +604,19 @@ function drawRegLine(cls, reg, color, opacity) {
 }
 
 // ── Scatter lasso / rectangle ──
+// Re-appends the overlay above the dots, which drawScatter joins in after it.
 function setupScatterSel() {
   scatterG.selectAll('.sc-sel-path,.sc-sel-rect').remove();
   scatterG.append('path').attr('class','sc-sel-path');
   scatterG.append('rect').attr('class','sc-sel-rect')
     .attr('fill','rgba(80,120,255,0.06)').attr('stroke','none').style('display','none');
-  scatterSvg
-    .on('mousedown.scsel', onScatterSelDown)
+}
+
+// Bound once from initScatter. As on the map, the drag is tracked on the
+// window so it survives leaving the plot area, and so it always terminates.
+function bindScatterSelEvents() {
+  scatterSvg.on('mousedown.scsel', onScatterSelDown);
+  d3.select(window)
     .on('mousemove.scsel', onScatterSelMove)
     .on('mouseup.scsel',   onScatterSelUp);
 }
@@ -735,11 +784,17 @@ function emitSelectionChange() {
 //  STATUS & CONTROLS
 // ============================================================
 
+// GEOGRAPHY_LABEL + 's' produced 'countys', 'parishs', 'municipalitys' for
+// anyone adapting the tool, so the plural comes from config instead.
+function geogLabel(n) {
+  return n === 1 ? GEOGRAPHY_LABEL : GEOGRAPHY_LABEL_PLURAL;
+}
+
 function updateStatusBar() {
   const total=state.geojson.features.length, sel=state.selectedIds.size;
   document.getElementById('statusText').textContent = sel>0
-    ? `${sel.toLocaleString()} of ${total.toLocaleString()} ${GEOGRAPHY_LABEL}s selected`
-    : `${total.toLocaleString()} ${GEOGRAPHY_LABEL}s`;
+    ? `${sel.toLocaleString()} of ${total.toLocaleString()} ${geogLabel(total)} selected`
+    : `${total.toLocaleString()} ${geogLabel(total)}`;
 }
 
 function showClearBtn(show) {
@@ -778,7 +833,7 @@ function applyPageIdentity() {
   const credit = document.getElementById('pageCredit');
   // DATA_CREDIT_HTML is authored in config.js rather than read from the
   // data, so it is trusted markup and may contain links.
-  if (credit) credit.innerHTML = DATA_CREDIT_HTML;
+  if (credit && DATA_CREDIT_HTML) credit.innerHTML = DATA_CREDIT_HTML;
 }
 
 // ============================================================
@@ -910,6 +965,23 @@ function validateConfig(geojson) {
     });
   }
 
+  // ── projection and labels ──
+  if (typeof PROJECTION !== 'function') {
+    errors.push(`${code('PROJECTION')} must be a function returning a d3 projection, e.g. ${code('() => d3.geoMercator()')}.`);
+  } else {
+    let proj = null;
+    try { proj = PROJECTION(); } catch (e) { /* reported below */ }
+    if (!proj || typeof proj.fitSize !== 'function') {
+      errors.push(`${code('PROJECTION')} did not return a usable d3 projection. It should be a factory, ${code('() => d3.geoMercator()')}, not a projection object.`);
+    }
+  }
+  if (typeof CONFIG.GEOGRAPHY_LABEL_PLURAL !== 'string' || !CONFIG.GEOGRAPHY_LABEL_PLURAL) {
+    warnings.push(`GEOGRAPHY_LABEL_PLURAL is not exported by config.js — falling back to '${GEOGRAPHY_LABEL_PLURAL}', which is wrong for words like 'county'.`);
+  }
+  if (typeof CONFIG.DATA_CREDIT_HTML !== 'string' || !CONFIG.DATA_CREDIT_HTML) {
+    warnings.push('DATA_CREDIT_HTML is not exported by config.js, so the page footer carries no data credit.');
+  }
+
   // ── defaults (repaired by repairDefaults(), so these only warn) ──
   const varIds = new Set((VARIABLES || []).map(v => v.id));
   if (varIds.size) {
@@ -951,6 +1023,35 @@ function showStartupProblems(errors, warnings) {
       <ul style="margin:0 0 0 18px;padding:0;">${list(warnings)}</ul>` : ''}
       <div style="margin-top:13px;color:#888;">Correct these in ${code('config.js')} and reload.</div>
     </div>`;
+}
+
+// ============================================================
+//  RESIZE
+//  resizeMap() and recalcScatterDims() used to run only at startup, so the
+//  SVGs kept whatever viewBox the panes had on load. After a window resize
+//  the map letterboxed inside its pane and, because svgPoint() works from
+//  raw screen offsets, lasso coordinates drifted out of step with the cursor.
+// ============================================================
+
+function handleResize() {
+  if (!state.geojson) return;
+  resizeMap();
+  drawMap();
+  recalcScatterDims();
+  layoutScatter();
+  drawScatter();
+}
+
+function observeResize() {
+  // Coalesce bursts of observer callbacks into one redraw per frame.
+  let queued = false;
+  const ro = new ResizeObserver(() => {
+    if (queued) return;
+    queued = true;
+    requestAnimationFrame(() => { queued = false; handleResize(); });
+  });
+  ro.observe(document.getElementById('mapPane'));
+  ro.observe(document.getElementById('scatterPane'));
 }
 
 // ============================================================
@@ -998,8 +1099,16 @@ async function init() {
   document.getElementById('varYSelect').addEventListener('change', e=>onVarYChange(e.target.value));
   document.getElementById('clearBtn').addEventListener('click', clearSelection);
 
-  document.getElementById('symBtn').addEventListener('click', e => {
+  const symBtn = document.getElementById('symBtn');
+  symBtn.addEventListener('click', e => {
     e.stopPropagation(); toggleSymDropdown();
+  });
+  // role="button" promises keyboard operability that a click handler alone
+  // does not deliver: Enter and Space did nothing.
+  symBtn.addEventListener('keydown', e => {
+    if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') {
+      e.preventDefault(); e.stopPropagation(); toggleSymDropdown();
+    }
   });
   document.addEventListener('click', e => {
     if (symDropdownOpen &&
@@ -1023,6 +1132,8 @@ async function init() {
 
   buildSymDropdown();
   updateSymBtn();
+
+  observeResize();
 }
 
 window.addEventListener('DOMContentLoaded', init);

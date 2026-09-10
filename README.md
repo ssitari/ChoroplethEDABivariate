@@ -77,6 +77,17 @@ export const FEATURE_NAME_FIELD = 'NAME';
 
 // Optional secondary label in tooltips (e.g. state, borough). Set null to omit.
 export const FEATURE_GROUP_FIELD = 'STATE_NAME';
+
+// Plural is given explicitly — 'county' + 's' is wrong, and so is every
+// pluralisation rule simple enough to be worth writing.
+export const GEOGRAPHY_LABEL_PLURAL = 'tracts';
+
+// Any d3-geo projection factory. Re-fitted to the pane on every draw, so do
+// not set .scale() or .translate() yourself.
+//   () => d3.geoMercator()    cities and regions away from the poles
+//   () => d3.geoAlbersUsa()   the United States, including Alaska and Hawaii
+//   () => d3.geoAlbers()      mid-latitude countries and states
+export const PROJECTION = () => d3.geoAlbersUsa();
 ```
 
 Set the page identity too — these are written into the browser tab, the toolbar
@@ -153,6 +164,11 @@ serious problems — an unknown `DEFAULT_VAR_X`, an unrecognised colour scheme �
 are repaired with a sensible fallback and logged to the browser console under
 `[config]`.
 
+Keys added after a release (`PAGE_TITLE`, `DATA_CREDIT_HTML`,
+`GEOGRAPHY_LABEL_PLURAL`, `PROJECTION`) are optional: a `config.js` written
+against an older version keeps working, falling back to the previous behaviour
+with a console warning for each.
+
 ---
 
 ## Interaction reference
@@ -181,6 +197,10 @@ are repaired with a sensible fallback and logged to the browser console under
 3. Your tool will be live at `https://<username>.github.io/<repo>/`
 
 No build step required.
+
+> **If you forked this repository**, delete the Cloudflare Web Analytics
+> `<script>` at the bottom of `index.html` or replace its token with your own.
+> Left as-is, your traffic is reported to this deployment's dashboard.
 
 ---
 
