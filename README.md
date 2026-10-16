@@ -224,16 +224,21 @@ gdf['fid'] = range(1, len(gdf) + 1)
 
 ### Simplifying geometry for web performance
 
-For large datasets (1,000+ features), simplifying geometry significantly reduces file size and improves rendering speed:
+For large datasets (1,000+ features), simplifying geometry significantly reduces file size and improves rendering speed. What matters is the total number of vertices, not the number of features: it drives load time, the time to draw the map, and how smoothly it pans and zooms.
 
-```python
-from shapely import simplify
-gdf['geometry'] = gdf['geometry'].apply(
-    lambda g: simplify(g, tolerance=0.0003, preserve_topology=True)
-)
+Use a tool that simplifies **shared borders together**, such as [mapshaper](https://github.com/mbloch/mapshaper) (command line, or in the browser at [mapshaper.org](https://mapshaper.org/)):
+
+```bash
+mapshaper input.shp -simplify 10% keep-shapes -o precision=0.0001 format=geojson output.geojson
 ```
 
-Tolerance values around 0.0002–0.0005 degrees work well for city/regional data. Increase for national datasets.
+- `-simplify 10%` keeps 10% of the removable vertices; lower it for national data, raise it for city data, and check the result at the zoom levels people will use.
+- `keep-shapes` stops small features (islands, small counties) from disappearing.
+- `precision=0.0001` rounds coordinates to four decimal places (about 11 m), which cuts file size noticeably with no visible change at map scale.
+
+Avoid simplifying each feature on its own, e.g. with GeoPandas or Shapely `simplify(..., preserve_topology=True)`. Despite the name, that keeps each polygon valid but does not keep neighbouring polygons' shared borders identical, so adjacent features simplify differently and leave slivers and gaps along every boundary. It is barely visible with light simplification of city data, and obvious at the tolerances national data needs.
+
+For US national data, starting from the Census Bureau's generalized [cartographic boundary files](https://www.census.gov/geographies/mapping-files/time-series/geo/cartographic-boundary.html) (1:5m or 1:20m) gets most of the way before any simplification.
 
 ### Recommended file sizes
 

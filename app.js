@@ -145,6 +145,11 @@ let mapSvg, mapG, mapBrushG, projection, pathGen;
 let zoomBehavior, currentTransform;
 let zoomHintShown = false;
 let cachedXBreaks, cachedYBreaks;
+// Projected centroid of each feature, parallel to state.geojson.features.
+// Map selection tests every centroid on every lasso, and pathGen.centroid()
+// walks every vertex of the feature, so they are computed once per
+// projection fit rather than once per selection.
+let cachedCentroids = [];
 
 function initMap() {
   mapSvg = d3.select('#mapSvg');
@@ -157,9 +162,11 @@ function initMap() {
 function resizeMap() {
   const el = document.getElementById('mapPane');
   const w = el.clientWidth, h = el.clientHeight;
+  drawnPaneSize.map = paneSize(el);
   mapSvg.attr('viewBox', `0 0 ${w} ${h}`).attr('width', w).attr('height', h);
   projection = PROJECTION().fitSize([w, h], state.geojson);
   pathGen    = d3.geoPath().projection(projection);
+  cachedCentroids = state.geojson.features.map(f => pathGen.centroid(f));
   setupZoom(w, h);
 }
 
@@ -198,8 +205,11 @@ function computeBreaks() {
   cachedYBreaks = tertileBreaks(ay);
 }
 
-function drawMap() {
-  computeBreaks();
+// Geometry and colour are drawn separately. Generating the path data
+// re-projects every vertex in the file, which is the most expensive thing
+// the map does, and the shapes only change when the projection is re-fitted
+// (startup and resize). A variable change only needs recolorMap().
+function drawMapGeometry() {
   mapG.selectAll('.zone')
     .data(state.geojson.features, featureId)
     .join('path')
@@ -209,6 +219,10 @@ function drawMap() {
     .attr('stroke-width', 0.5)
     .on('mousemove', onZoneHover)
     .on('mouseleave', hideTooltip);
+}
+
+function recolorMap() {
+  computeBreaks();
   applyMapColors();
   drawLegend();
 }
@@ -466,8 +480,8 @@ function onSelMouseUp(event) {
   })();
   if (poly.length < 3) { clearSelPath(); return; }
   state.selectedIds.clear(); state.mode = 'map';
-  state.geojson.features.forEach(f => {
-    const c = pathGen.centroid(f);
+  state.geojson.features.forEach((f, i) => {
+    const c = cachedCentroids[i];
     if (!isNaN(c[0]) && d3.polygonContains(poly, c)) state.selectedIds.add(featureId(f));
   });
   mapBrushG.select('.sel-path').attr('stroke-dasharray',null).attr('fill','rgba(80,120,255,0.10)');
@@ -534,6 +548,7 @@ function layoutScatter() {
 
 function recalcScatterDims() {
   const el = document.getElementById('scatterPane');
+  drawnPaneSize.scatter = paneSize(el);
   scatterW = el.clientWidth  - SM.left - SM.right;
   scatterH = el.clientHeight - SM.top  - SM.bottom;
   scatterSvg.attr('width',el.clientWidth).attr('height',el.clientHeight)
@@ -810,8 +825,16 @@ function clearSelection() {
   emitSelectionChange();
 }
 
-function onVarXChange(id) { state.varX=id; clearSelection(); computeBreaks(); drawMap(); drawScatter(); }
-function onVarYChange(id) { state.varY=id; clearSelection(); computeBreaks(); drawMap(); drawScatter(); }
+// Breaks first, so that clearSelection() colours the map with the new
+// variable's classes. clearSelection() also redraws the scatterplot, so
+// nothing else needs to; the geometry is untouched.
+function onVarChange() {
+  computeBreaks();
+  clearSelection();
+  drawLegend();
+}
+function onVarXChange(id) { state.varX = id; onVarChange(); }
+function onVarYChange(id) { state.varY = id; onVarChange(); }
 
 function onSchemeChange(id) {
   state.scheme = id;
@@ -1031,24 +1054,43 @@ function showStartupProblems(errors, warnings) {
 //  SVGs kept whatever viewBox the panes had on load. After a window resize
 //  the map letterboxed inside its pane and, because svgPoint() works from
 //  raw screen offsets, lasso coordinates drifted out of step with the cursor.
+//
+//  Each pane is redrawn only if its size actually changed, and only once the
+//  resize has settled. Redrawing every frame meant re-projecting the whole
+//  file dozens of times a second during a window drag, which is unnoticeable
+//  with a few hundred features and very noticeable with a few thousand. In
+//  the meantime the SVGs are CSS-sized with a viewBox, so the old drawing
+//  scales to the pane rather than breaking.
 // ============================================================
+
+//  The sizes are recorded where each pane is measured for drawing (resizeMap,
+//  recalcScatterDims), not after startup finishes: the stats panel first
+//  appears during the initial drawScatter() and shrinks the scatter pane, so
+//  the observer's first callback has a real change to apply.
+
+const RESIZE_SETTLE_MS = 150;
+const drawnPaneSize = { map: '', scatter: '' };
+
+function paneSize(el) { return `${el.clientWidth}x${el.clientHeight}`; }
 
 function handleResize() {
   if (!state.geojson) return;
-  resizeMap();
-  drawMap();
-  recalcScatterDims();
-  layoutScatter();
-  drawScatter();
+  if (paneSize(document.getElementById('mapPane')) !== drawnPaneSize.map) {
+    resizeMap();
+    drawMapGeometry();
+  }
+  if (paneSize(document.getElementById('scatterPane')) !== drawnPaneSize.scatter) {
+    recalcScatterDims();
+    layoutScatter();
+    drawScatter();
+  }
 }
 
 function observeResize() {
-  // Coalesce bursts of observer callbacks into one redraw per frame.
-  let queued = false;
+  let timer = null;
   const ro = new ResizeObserver(() => {
-    if (queued) return;
-    queued = true;
-    requestAnimationFrame(() => { queued = false; handleResize(); });
+    clearTimeout(timer);
+    timer = setTimeout(handleResize, RESIZE_SETTLE_MS);
   });
   ro.observe(document.getElementById('mapPane'));
   ro.observe(document.getElementById('scatterPane'));
@@ -1123,7 +1165,8 @@ async function init() {
 
   initMap();
   resizeMap();
-  drawMap();
+  drawMapGeometry();
+  recolorMap();
   setupMapBrush();
 
   initScatter();
