@@ -229,9 +229,10 @@ For large datasets (1,000+ features), simplifying geometry significantly reduces
 Use a tool that simplifies **shared borders together**, such as [mapshaper](https://github.com/mbloch/mapshaper) (command line, or in the browser at [mapshaper.org](https://mapshaper.org/)):
 
 ```bash
-mapshaper input.shp -simplify 10% keep-shapes -o precision=0.0001 format=geojson output.geojson
+mapshaper input.shp -simplify 10% keep-shapes -o gj2008 precision=0.0001 format=geojson output.geojson
 ```
 
+- `gj2008` writes polygon rings clockwise, which is the order d3 expects. mapshaper's default (like GDAL's `RFC7946=YES`) is counter-clockwise, which d3 reads as "the whole globe except this shape". The tool detects that on load, reverses the rings, and logs a `[config]` warning in the console, but exporting the right way round avoids the extra step.
 - `-simplify 10%` keeps 10% of the removable vertices; lower it for national data, raise it for city data, and check the result at the zoom levels people will use.
 - `keep-shapes` stops small features (islands, small counties) from disappearing.
 - `precision=0.0001` rounds coordinates to four decimal places (about 11 m), which cuts file size noticeably with no visible change at map scale.

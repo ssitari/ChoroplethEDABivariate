@@ -164,10 +164,36 @@ function resizeMap() {
   const w = el.clientWidth, h = el.clientHeight;
   drawnPaneSize.map = paneSize(el);
   mapSvg.attr('viewBox', `0 0 ${w} ${h}`).attr('width', w).attr('height', h);
-  projection = PROJECTION().fitSize([w, h], state.geojson);
+  projection = fitAroundLegend(w, h);
   pathGen    = d3.geoPath().projection(projection);
   cachedCentroids = state.geojson.features.map(f => pathGen.centroid(f));
   setupZoom(w, h);
+}
+
+// Fit the geography to the pane without running under the floating legend,
+// which used to cover whatever sat in the bottom-left corner (Alaska, on a
+// US map). Reserves a strip the size of the legend along either the bottom
+// or the left edge, whichever leaves the map larger: a wide shape such as
+// the US has vertical slack and loses nothing to a bottom strip, a tall one
+// loses nothing to a left strip. The legend is measured as drawn, so it must
+// exist before this runs; it is re-measured only when the pane is resized,
+// since refitting on a variable change would mean regenerating every path.
+function fitAroundLegend(w, h) {
+  const GAP = 8;
+  const pane = document.getElementById('mapPane').getBoundingClientRect();
+  const lg   = document.getElementById('floatLegend').getBoundingClientRect();
+  const extents = [[[0, 0], [w, h]]];
+  if (lg.width && lg.height) {
+    const left   = Math.min(lg.right - pane.left + GAP, w / 2);
+    const bottom = Math.min(pane.bottom - lg.top + GAP, h / 2);
+    extents.splice(0, 1, [[left, 0], [w, h]], [[0, 0], [w, h - bottom]]);
+  }
+  let best = null;
+  for (const ext of extents) {
+    const p = PROJECTION().fitExtent(ext, state.geojson);
+    if (!best || p.scale() > best.scale()) best = p;
+  }
+  return best;
 }
 
 function setupZoom(w, h) {
@@ -208,7 +234,8 @@ function computeBreaks() {
 // Geometry and colour are drawn separately. Generating the path data
 // re-projects every vertex in the file, which is the most expensive thing
 // the map does, and the shapes only change when the projection is re-fitted
-// (startup and resize). A variable change only needs recolorMap().
+// (startup and resize). A variable change only needs computeBreaks(),
+// applyMapColors() and drawLegend().
 function drawMapGeometry() {
   mapG.selectAll('.zone')
     .data(state.geojson.features, featureId)
@@ -219,12 +246,6 @@ function drawMapGeometry() {
     .attr('stroke-width', 0.5)
     .on('mousemove', onZoneHover)
     .on('mouseleave', hideTooltip);
-}
-
-function recolorMap() {
-  computeBreaks();
-  applyMapColors();
-  drawLegend();
 }
 
 function applyMapColors() {
@@ -738,6 +759,10 @@ function drawStats(allPairs, selPairs, regAll, regSel) {
     if (sv==null) return '';
     return sv-av>0.001?'pos':sv-av<-0.001?'neg':'';
   }
+  // A statistic can be undefined: d3.deviation() of a one-feature selection
+  // is. Passing that to a config fmt like v => v.toFixed(1) threw, which
+  // aborted finishSelection() before the status bar and selection event.
+  function fmtStat(vd, v) { return v == null || Number.isNaN(v) ? '—' : vd.fmt(v); }
   function fmtR(r)    { return r ? r.r.toFixed(3) : '—'; }
   function fmtSlope(r,vd) { return r ? r.slope.toFixed(3)+' '+vd.unit+'/'+vdx.unit : '—'; }
 
@@ -748,8 +773,8 @@ function drawStats(allPairs, selPairs, regAll, regSel) {
         const av=sA[k], sv=sS?sS[k]:null;
         return `<div class="stats-row">
           <span class="stats-label">${lbl}</span>
-          <span class="stats-val">${vd.fmt(av)}</span>
-          ${sS?`<span class="stats-val stats-col-sel">${vd.fmt(sv)}</span>`:''}
+          <span class="stats-val">${fmtStat(vd, av)}</span>
+          ${sS?`<span class="stats-val stats-col-sel">${fmtStat(vd, sv)}</span>`:''}
           ${sS?`<span class="stats-pct ${pctCls(sv,av)}">${pct(sv,av)}</span>`:''}
         </div>`;
       }).join('');
@@ -994,7 +1019,7 @@ function validateConfig(geojson) {
   } else {
     let proj = null;
     try { proj = PROJECTION(); } catch (e) { /* reported below */ }
-    if (!proj || typeof proj.fitSize !== 'function') {
+    if (!proj || typeof proj.fitExtent !== 'function') {
       errors.push(`${code('PROJECTION')} did not return a usable d3 projection. It should be a factory, ${code('() => d3.geoMercator()')}, not a projection object.`);
     }
   }
@@ -1016,6 +1041,31 @@ function validateConfig(geojson) {
   }
 
   return { errors, warnings };
+}
+
+// d3-geo treats polygons as spherical and reads ring order the opposite way
+// from the GeoJSON spec (RFC 7946): an outer ring must run clockwise. A ring
+// written counter-clockwise, as mapshaper does by default and GDAL does with
+// RFC7946=YES, is read as the whole globe minus the feature, so it covers
+// the map and every lasso selects it. A polygon larger than a hemisphere is
+// taken to be inverted, and its rings are reversed in place. Returns the
+// number of features repaired.
+function rewindInvertedPolygons(features) {
+  const fix = rings => {
+    if (d3.geoArea({ type: 'Polygon', coordinates: rings }) <= 2 * Math.PI) return false;
+    rings.forEach(r => r.reverse());
+    return true;
+  };
+  let n = 0;
+  features.forEach(f => {
+    const g = f.geometry;
+    if (!g) return;
+    let changed = false;
+    if (g.type === 'Polygon') changed = fix(g.coordinates);
+    else if (g.type === 'MultiPolygon') g.coordinates.forEach(p => { changed = fix(p) || changed; });
+    if (changed) n++;
+  });
+  return n;
 }
 
 // An out-of-range default is a typo, not a reason to refuse to start.
@@ -1122,6 +1172,12 @@ async function init() {
   warnings.forEach(w => console.warn('[config]', stripTags(w)));
   if (errors.length) { showStartupProblems(errors, warnings); return; }
   repairDefaults();
+  const rewound = rewindInvertedPolygons(state.geojson.features);
+  if (rewound) {
+    console.warn('[config]', `${rewound} of ${state.geojson.features.length} features had ` +
+      'counter-clockwise outer rings, which d3 draws inside-out; they were reversed on load. ' +
+      'Export with clockwise rings to skip this step (mapshaper: -o gj2008).');
+  }
 
   document.getElementById('loadingMsg').style.display = 'none';
 
@@ -1163,10 +1219,14 @@ async function init() {
   document.getElementById('zoomOut').addEventListener('click',   ()=>zoomBy(0.5));
   document.getElementById('zoomReset').addEventListener('click', ()=>zoomReset());
 
+  // The legend is drawn before the projection is fitted, so that
+  // fitAroundLegend() can measure it.
   initMap();
+  computeBreaks();
+  drawLegend();
   resizeMap();
   drawMapGeometry();
-  recolorMap();
+  applyMapColors();
   setupMapBrush();
 
   initScatter();
