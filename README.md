@@ -2,12 +2,11 @@
 
 See how two measures relate across geography with a linked map and scatterplot.
 
+This is an attempt to put together a platform for an interactive choropleth explorer linked to a scatterplot for exploration of two continuous variables. Brushing is bidirectional, allowing for map selections (that update the plot) or selections on the plot, that select the geographies on the map. This example uses zip code approximations in New York City, and information on early 2021 COVID vaccination uptake along with demographic data from the American Community Survey.  The example approximates maps used in the story [Why Are Some N.Y.C. Neighborhoods Still Waiting for Vaccines?](https://www.nytimes.com/interactive/2021/03/26/nyregion/nyc-vaccination-rates-map.html) from the 3/26/21 edition of the New York Times. I will likely make other examples with different geographies. Similarly, I am posting a few related projects with univariate/histogram examples in other Github repos.
 
-An interactive bivariate choropleth explorer linking a 3×3 classified map to a scatterplot with OLS regression. Brushing either view highlights the corresponding features in the other.
+The inspiration for this is the brushable EDA toolset in GeoDa, which I have been using for years. It's remarkable that ESRI and QGIS still haven't brought those tools into their own platforms. This is an effort to replicate that kind of linked-view interactivity for outward-facing web visualization.
 
-The inspiration for this is the brushable EDA toolset in [GeoDa](https://geodacenter.github.io/), which I have been using for years. It's remarkable that ESRI and QGIS still haven't brought those tools into their own platforms. This is an effort to replicate that kind of linked-view interactivity for outward-facing web visualization.
-
-Built with [D3.js](https://d3js.org). No build step required — plain HTML, CSS, and ES modules.
+Built with D3.js. No build step required — plain HTML, CSS, and ES modules.
 
 ---
 
@@ -277,10 +276,11 @@ The six schemes included are:
 
 ## Demo data
 
-The included demo dataset covers **NYC Modified Zip Code Tabulation Areas (MODZCTAs)** with COVID-19 vaccination rates and demographic data as of March 26, 2021.
+The included demo dataset covers **NYC Modified Zip Code Tabulation Areas (MODZCTAs)** with COVID-19 vaccination rates as of March 26, 2021, and demographic data from the 2017–2021 American Community Survey (ACS) 5-year estimates.
 
-**Source:** NYC Department of Health and Mental Hygiene (DOHMH)
-NYC COVID-19 Vaccine Data — [github.com/nychealth/covid-vaccine-data](https://github.com/nychealth/covid-vaccine-data)
+**Sources:**
+- Vaccination rates: NYC Department of Health and Mental Hygiene (DOHMH), NYC COVID-19 Vaccine Data — [github.com/nychealth/covid-vaccine-data](https://github.com/nychealth/covid-vaccine-data)
+- Demographics (percent over 65, white, Black, Hispanic): US Census Bureau, American Community Survey 2017–2021 5-year estimates — [data.census.gov](https://data.census.gov)
 
 **Geography:** NYC MODZCTA boundaries are derived from US Census ZIP Code Tabulation Areas, modified by DOHMH for public health reporting. Original boundaries available at [NYC Open Data](https://data.cityofnewyork.us).
 

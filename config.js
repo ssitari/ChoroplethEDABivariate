@@ -25,6 +25,7 @@ export const DATA_CREDIT_HTML = `
   Demo data: NYC DOHMH
   <a href="https://github.com/nychealth/covid-vaccine-data" rel="noopener" target="_blank">COVID-19 Vaccine Data</a>
   as of March 26, 2021 &mdash; a historical snapshot from early in the vaccine rollout, not current figures.
+  Demographics: US Census Bureau, American Community Survey 2017&ndash;21 5-year estimates.
   Source code, method notes and full citations:
   <a href="https://github.com/ssitari/ChoroplethEDABivariate" rel="noopener" target="_blank">ssitari/ChoroplethEDABivariate</a>.
 `;
