@@ -1,4 +1,7 @@
-# Choropleth EDA — Bivariate
+# Explore Two Variables Across Space
+
+See how two measures relate across geography with a linked map and scatterplot.
+
 
 An interactive bivariate choropleth explorer linking a 3×3 classified map to a scatterplot with OLS regression. Brushing either view highlights the corresponding features in the other.
 
@@ -91,10 +94,13 @@ export const PROJECTION = () => d3.geoAlbersUsa();
 ```
 
 Set the page identity too — these are written into the browser tab, the toolbar
-heading and the footer at load, so `index.html` needs no edits:
+heading, the subtitle and the footer at load, so `index.html` needs no edits:
 
 ```javascript
 export const PAGE_TITLE = 'Median Income and Education by Tract';
+
+// Optional line under the heading; '' hides it.
+export const PAGE_SUBTITLE = 'ACS 5-year estimates, 2020–24';
 
 // Inserted as markup, so it can carry links. Always name your data source
 // and link back to the source code.
@@ -164,7 +170,7 @@ serious problems — an unknown `DEFAULT_VAR_X`, an unrecognised colour scheme �
 are repaired with a sensible fallback and logged to the browser console under
 `[config]`.
 
-Keys added after a release (`PAGE_TITLE`, `DATA_CREDIT_HTML`,
+Keys added after a release (`PAGE_TITLE`, `PAGE_SUBTITLE`, `DATA_CREDIT_HTML`,
 `GEOGRAPHY_LABEL_PLURAL`, `PROJECTION`) are optional: a `config.js` written
 against an older version keeps working, falling back to the previous behaviour
 with a console warning for each.

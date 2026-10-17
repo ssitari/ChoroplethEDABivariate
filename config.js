@@ -12,7 +12,10 @@ export const DATA_FILE = './data/MODZCTAS_Vaccine_2021.geojson';
 //  heading, and the footer credit at load.
 // ============================================================
 
-export const PAGE_TITLE = 'Choropleth EDA – Bivariate';
+export const PAGE_TITLE = 'Explore Two Variables Across Space';
+
+// Optional line under the heading; '' hides it.
+export const PAGE_SUBTITLE = 'See how two measures relate across geography with a linked map and scatterplot';
 
 // Footer credit. Inserted as markup so it can carry links — it is
 // authored here, not read from the data, so it is trusted. Keep a
@@ -20,7 +23,8 @@ export const PAGE_TITLE = 'Choropleth EDA – Bivariate';
 // should always say where its numbers came from.
 export const DATA_CREDIT_HTML = `
   Demo data: NYC DOHMH
-  <a href="https://github.com/nychealth/covid-vaccine-data" rel="noopener" target="_blank">COVID-19 Vaccine Data</a>.
+  <a href="https://github.com/nychealth/covid-vaccine-data" rel="noopener" target="_blank">COVID-19 Vaccine Data</a>
+  as of March 26, 2021 &mdash; a historical snapshot from early in the vaccine rollout, not current figures.
   Source code, method notes and full citations:
   <a href="https://github.com/ssitari/ChoroplethEDABivariate" rel="noopener" target="_blank">ssitari/ChoroplethEDABivariate</a>.
 `;
